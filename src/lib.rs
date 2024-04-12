@@ -4,7 +4,6 @@ use std::{
 };
 
 pub mod adv;
-pub mod task;
 
 #[derive(Debug, Clone, Copy)]
 struct WeatherRecord {

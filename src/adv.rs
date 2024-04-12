@@ -3,22 +3,20 @@ use std::{
     os::unix::fs::{FileExt, MetadataExt},
     path::PathBuf,
     str::from_utf8_unchecked,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     thread,
 };
 
+use ahash::AHashMap;
 use anyhow::Result;
-use ustr::{ustr, UstrMap};
+use ustr::UstrMap;
 
 use crate::WeatherRecord;
 
 //Based on https://github.com/coriolinus/1brc
 
 /// Size of chunk that each thread will process at a time
-const CHUNK_SIZE: u64 = 4 * 1024 * 1024;
+const CHUNK_SIZE: u64 = 3 * 1024 * 1024;
 /// How much extra space we back the chunk start up by, to ensure we capture the full initial record
 ///
 /// Must be greater than the longest line in the table
@@ -34,7 +32,7 @@ fn get_aligned_buffer<'a>(
     offset: u64,
     mut buffer: &'a mut [u8],
     file_size: u64,
-) -> Result<&'a [u8]> {
+) -> &'a [u8] {
     let buffer_size = buffer.len().min((file_size - offset) as usize);
     buffer = &mut buffer[..buffer_size];
 
@@ -49,7 +47,7 @@ fn get_aligned_buffer<'a>(
         read_from = offset - CHUNK_EXCESS;
     };
 
-    file.read_exact_at(buffer, read_from)?;
+    file.read_exact_at(buffer, read_from).unwrap();
 
     // step backwards until we find the end of the previous record
     // then drop all elements before that
@@ -66,40 +64,23 @@ fn get_aligned_buffer<'a>(
         tail -= 1;
     }
 
-    Ok(&buffer[head..=tail])
+    &buffer[head..=tail]
 }
 
 pub fn process(path: PathBuf) -> Result<()> {
-    // let mut set = JoinSet::new();
-    // let mut channels: IntMap<u16, UnboundedSender<WeatherCSVRecord>> = IntMap::default();
-    // let mut ticket = Ticket::default();
-    // ticket.notify_one();
-
-    // // Assuming each city name starts with uppercase letter
-    // for index in 65..91_u16 {
-    //     let (sender, ticket_task) = spawn_processing_task(&mut set, ticket);
-    //     ticket = ticket_task;
-    //     let _ = channels.insert(index, sender);
-    // }
-
-    // //Handling non english letters
-    // for index in 195..197_u16 {
-    //     let (sender, ticket_task) = spawn_processing_task(&mut set, ticket);
-    //     ticket = ticket_task;
-    //     let _ = channels.insert(index, sender);
-    // }
     let file = std::fs::File::open(path)?;
     let x = &file;
     let file_size = file.metadata()?.size();
-    let offset = Arc::new(AtomicU64::new(0));
+    let mut offset = 0u64;
     let map = Arc::new(Mutex::new(UstrMap::default()));
+    let num_thread = thread::available_parallelism().map(Into::into).unwrap_or(1);
     thread::scope(|scope| {
-        for _ in 0..thread::available_parallelism().map(Into::into).unwrap_or(1) {
-            let offset = offset.clone();
+        for _ in 0..num_thread {
             let mut map = map.clone();
             scope.spawn(move || {
-                let _ = reader_sender(x, offset, file_size, &mut map);
+                reader_sender(x, offset, num_thread as u64, file_size, &mut map);
             });
+            offset += CHUNK_SIZE;
         }
     });
     let map = Arc::into_inner(map).unwrap().into_inner().unwrap();
@@ -108,97 +89,54 @@ pub fn process(path: PathBuf) -> Result<()> {
 
     for key in keys {
         let record = map[key];
-
         println!("{key}: {record}");
     }
-
-    // for _ in 0..16 {
-    //     let path = path.clone();
-    //     let offset = offset.clone();
-    //     //let channels = channels.clone();
-    //     let _ = spawn_blocking(move || reader_sender(path, channels, offset, file_size)).await;
-    // }
-    // drop(channels);
-
-    // while (set.join_next().await).is_some() {}
-    // Ok(())
     Ok(())
 }
 
 fn reader_sender(
     file: &File,
-    offset: Arc<AtomicU64>,
+    mut offset: u64,
+    num_thread: u64,
     file_size: u64,
     outer_map: &mut Arc<Mutex<UstrMap<WeatherRecord>>>,
-) -> Result<()> {
+) {
     let mut buffer = vec![0; (CHUNK_SIZE + CHUNK_EXCESS) as usize];
     let mut map: UstrMap<WeatherRecord> = UstrMap::default();
-    loop {
-        let offset = offset.fetch_add(CHUNK_SIZE, Ordering::SeqCst);
-        if offset > file_size {
-            break;
-        }
+    let jump = CHUNK_SIZE * num_thread;
+
+    while offset < file_size {
         // totally safe by FAQ assumptions
         unsafe {
-            let buf = get_aligned_buffer(file, offset, &mut buffer, file_size)?;
+            let buf = get_aligned_buffer(file, offset, &mut buffer, file_size);
+            let mut loop_map: AHashMap<&str, WeatherRecord> = AHashMap::default();
             for line in from_utf8_unchecked(buf).lines() {
                 let (station, temp) = line.split_once(';').unwrap();
-                let measure: f32 = temp.parse().unwrap();
-                let temp = ustr(station);
+                let measure = temp.parse().unwrap();
 
-                match map.get_mut(&temp) {
+                match loop_map.get_mut(station) {
                     Some(elem) => {
                         elem.update(measure);
                     }
                     None => {
-                        map.insert(temp, WeatherRecord::new(measure));
+                        loop_map.insert(station, WeatherRecord::new(measure));
                     }
                 }
             }
+            for (city, records) in loop_map.into_iter() {
+                map.entry(city.into())
+                    .and_modify(|outer_records| *outer_records += records)
+                    .or_insert(records);
+            }
         }
-
-        // for line in buf.split(|&b| b == b'\n').filter(|line| !line.is_empty()) {
-        //     // let idx = line
-        //     //     .iter()
-        //     //     .enumerate()
-        //     //     .find_map(|(idx, &b)| (b == b';').then_some(idx))
-        //     //     .unwrap();
-
-        //     let (station, temp) = from_utf8(line)?.split_once(';').unwrap();
-        // //    / let measure: f32 = from_utf8(&line[idx + 1..]).unwrap().parse()?;
-        //     //let temp = ustr(from_utf8(&line[..idx])?);
-        //     let measure: f32 = temp.parse().unwrap();
-        //     let temp = ustr(station);
-
-        //     match map.get_mut(&temp) {
-        //         Some(elem) => {
-        //             elem.min = measure.min(elem.min);
-        //             elem.max = measure.max(elem.max);
-        //             elem.sum += measure as f64;
-        //             elem.count += 1;
-        //         }
-        //         None => {
-        //             map.insert(
-        //                 temp,
-        //                 WeatherRecord {
-        //                     min: measure,
-        //                     max: measure,
-        //                     sum: measure as f64,
-        //                     count: 1,
-        //                 },
-        //             );
-        //         }
-        //     }
-        // }
+        offset += jump;
     }
 
-    let mut outer = outer_map.lock().expect("non-poisoned mutex");
+    let mut outer = outer_map.lock().unwrap();
     for (city, records) in map.into_iter() {
         outer
             .entry(city)
             .and_modify(|outer_records| *outer_records += records)
             .or_insert(records);
     }
-    // println!("exit");
-    Ok(())
 }
