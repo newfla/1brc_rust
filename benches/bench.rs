@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-const PATH: &str = "/home/flavio/1brc/measurements.txt";
+const PATH: &str = "./measurements.txt";
 
 pub fn bench(c: &mut Criterion) {
     c.bench_function("basic impl", |b| {
