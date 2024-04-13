@@ -4,3 +4,8 @@
 Based on [coriolinus work](https://github.com/coriolinus/1brc).
 
 On my platform (Ryzen 5600, 16 GB DDR4, 1TB SDD PCI3.0) I was able to shave about 1 second.
+
+## Benchmark result
+| min      | mean     | max      |
+|----------|----------|----------|
+| 3.9757 s | 3.9818 s | 3.9873 s |

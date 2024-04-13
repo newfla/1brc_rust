@@ -70,6 +70,7 @@ fn get_aligned_buffer<'a>(
         tail -= 1;
     }
 
+    // for some reason escluding tail byte to avoid !line.is_empty() causes a performance degradation
     &buffer[head..=tail]
 }
 
