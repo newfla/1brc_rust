@@ -14,6 +14,12 @@ use ustr::UstrMap;
 use crate::WeatherRecord;
 
 //Based on https://github.com/coriolinus/1brc
+//Based on https://github.com/thebracket/one_billion_rows
+
+const MINUS: u8 = b'-';
+const PERIOD: u8 = b'.';
+const SEMICOLON: u8 = b';';
+const NEWLINE: u8 = b'\n';
 
 /// Size of chunk that each thread will process at a time
 const CHUNK_SIZE: u64 = 3 * 1024 * 1024;
@@ -67,6 +73,33 @@ fn get_aligned_buffer<'a>(
     &buffer[head..=tail]
 }
 
+fn parse_ascii_digits(buffer: &[u8]) -> i32 {
+    let size = buffer.len();
+    let mut negative_mul = 1;
+    let mut accumulator = 0;
+    let mut positional_mul = 10_i32.pow(size as u32 - 2);
+    for item in buffer.iter() {
+        match *item {
+            MINUS => {
+                negative_mul = -1;
+                positional_mul /= 10;
+            }
+            PERIOD => {
+                // Do nothing
+            }
+            48..=57 => {
+                // Digits
+                let digit = *item as i32 - 48;
+                accumulator += digit * positional_mul;
+                positional_mul /= 10;
+            }
+            _ => panic!("Unhandled ASCII numerical symbol: {}", item),
+        }
+    }
+    accumulator *= negative_mul;
+    accumulator
+}
+
 pub fn process(path: PathBuf) -> Result<()> {
     let file = std::fs::File::open(path)?;
     let x = &file;
@@ -106,25 +139,34 @@ fn reader_sender(
     let jump = CHUNK_SIZE * num_thread;
 
     while offset < file_size {
-        // totally safe by FAQ assumptions
-        unsafe {
-            let buf = get_aligned_buffer(file, offset, &mut buffer, file_size);
-            let mut loop_map: AHashMap<&str, WeatherRecord> = AHashMap::default();
-            for line in from_utf8_unchecked(buf).lines() {
-                let (station, temp) = line.split_once(';').unwrap();
-                let measure = temp.parse().unwrap();
+        let mut loop_map: AHashMap<&[u8], WeatherRecord> = AHashMap::default();
+        let buf = get_aligned_buffer(file, offset, &mut buffer, file_size);
 
-                match loop_map.get_mut(station) {
-                    Some(elem) => {
-                        elem.update(measure);
-                    }
-                    None => {
-                        loop_map.insert(station, WeatherRecord::new(measure));
-                    }
+        for line in buf
+            .split(|val| val == &NEWLINE)
+            .filter(|line| !line.is_empty())
+        {
+            let split_point = line
+                .iter()
+                .enumerate()
+                .find_map(|(id, val)| (val == &SEMICOLON).then_some(id))
+                .unwrap();
+
+            let measure = parse_ascii_digits(&line[split_point + 1..]);
+            let station = &line[..split_point];
+
+            match loop_map.get_mut(station) {
+                Some(elem) => {
+                    elem.update(measure);
+                }
+                None => {
+                    loop_map.insert(station, WeatherRecord::new(measure));
                 }
             }
+        }
+        unsafe {
             for (city, records) in loop_map.into_iter() {
-                map.entry(city.into())
+                map.entry(from_utf8_unchecked(city).into())
                     .and_modify(|outer_records| *outer_records += records)
                     .or_insert(records);
             }

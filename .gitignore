@@ -2,3 +2,4 @@
 .vscode/settings.json
 .idea/*
 measurements.txt
+flamegraph*
