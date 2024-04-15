@@ -17,7 +17,6 @@ use crate::WeatherRecord;
 //Based on https://github.com/thebracket/one_billion_rows
 
 const MINUS: u8 = b'-';
-const PERIOD: u8 = b'.';
 const SEMICOLON: u8 = b';';
 const NEWLINE: u8 = b'\n';
 
@@ -79,24 +78,25 @@ fn parse_ascii_digits(buffer: &[u8]) -> i32 {
     let mut negative_mul = 1;
     let mut accumulator = 0;
     let mut positional_mul = 10_i32.pow(size as u32 - 2);
-    for item in buffer.iter() {
-        match *item {
-            MINUS => {
-                negative_mul = -1;
-                positional_mul /= 10;
-            }
-            PERIOD => {
-                // Do nothing
-            }
-            48..=57 => {
-                // Digits
-                let digit = *item as i32 - 48;
-                accumulator += digit * positional_mul;
-                positional_mul /= 10;
-            }
-            _ => panic!("Unhandled ASCII numerical symbol: {}", item),
-        }
+
+    if MINUS == buffer[0] {
+        negative_mul = -1;
+    } else {
+        let digit = buffer[0] as i32 - 48;
+        accumulator += digit * positional_mul;
     }
+
+    positional_mul /= 10;
+
+    for item in buffer.iter().take(size-2).skip(1)  {
+        let digit = *item as i32 - 48;
+        accumulator += digit * positional_mul;
+        positional_mul /= 10;
+    }
+
+    let digit = buffer[size-1] as i32 - 48;
+    accumulator += digit * positional_mul;
+
     accumulator *= negative_mul;
     accumulator
 }
