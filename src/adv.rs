@@ -88,14 +88,14 @@ fn parse_ascii_digits(buffer: &[u8]) -> i32 {
 
     positional_mul /= 10;
 
-    for item in buffer.iter().take(size-2).skip(1)  {
+    for item in buffer.iter().take(size - 2).skip(1) {
         let digit = *item as i32 - 48;
         accumulator += digit * positional_mul;
         positional_mul /= 10;
     }
 
-    let digit = buffer[size-1] as i32 - 48;
-    accumulator += digit * positional_mul;
+    let digit = buffer[size - 1] as i32 - 48;
+    accumulator += digit;
 
     accumulator *= negative_mul;
     accumulator
