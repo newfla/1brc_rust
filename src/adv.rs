@@ -112,7 +112,7 @@ pub fn process(path: PathBuf) -> Result<()> {
         for _ in 0..num_thread {
             let mut map = map.clone();
             scope.spawn(move || {
-                reader_sender(x, offset, num_thread as u64, file_size, &mut map);
+                reader(x, offset, num_thread as u64, file_size, &mut map);
             });
             offset += CHUNK_SIZE;
         }
@@ -128,7 +128,7 @@ pub fn process(path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn reader_sender(
+fn reader(
     file: &File,
     mut offset: u64,
     num_thread: u64,
