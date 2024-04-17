@@ -1,7 +1,4 @@
-use std::{
-    fmt::Display,
-    ops::{Add, AddAssign},
-};
+use std::fmt::Display;
 
 pub mod adv;
 
@@ -13,6 +10,7 @@ struct WeatherRecord {
     sum: i64,
     count: u32,
 }
+
 impl WeatherRecord {
     fn update(&mut self, item: i32) {
         self.count += 1;
@@ -30,27 +28,15 @@ impl WeatherRecord {
             count: 1,
         }
     }
-}
 
-impl Add for WeatherRecord {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            city: self.city,
-            count: self.count + rhs.count,
-            min: self.min.min(rhs.min),
-            max: self.max.max(rhs.max),
-            sum: self.sum + rhs.sum,
-        }
+    fn merge(&mut self, rhs: &Self) {
+        self.count += rhs.count;
+        self.min = self.min.min(rhs.min);
+        self.max = self.max.max(rhs.max);
+        self.sum += rhs.sum;
     }
 }
 
-impl AddAssign for WeatherRecord {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
-    }
-}
 impl Display for WeatherRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mean = self.sum as f32 / self.count as f32;

@@ -118,13 +118,9 @@ pub fn process(path: PathBuf) -> Result<()> {
         }
     });
     let map = Arc::into_inner(map).unwrap().into_inner().unwrap();
-    let mut keys = map.keys().collect::<Vec<_>>();
-    keys.sort_unstable();
-
-    for key in keys {
-        let record = map[key];
-        println!("{record}");
-    }
+    let mut cities = map.values().collect::<Vec<_>>();
+    cities.sort_unstable_by(|a, b| a.city.cmp(&b.city));
+    cities.iter().for_each(|city| println!("{city}"));
     Ok(())
 }
 
@@ -137,7 +133,7 @@ fn reader(
 ) {
     let mut buffer = vec![0; (CHUNK_SIZE + CHUNK_EXCESS) as usize];
     let mut map: IntMap<u64, WeatherRecord> = IntMap::default();
-    let hasher = RandomState::new();
+    let hasher = RandomState::with_seed(1);
     let jump = CHUNK_SIZE * num_thread;
 
     while offset < file_size {
@@ -176,7 +172,7 @@ fn reader(
     for (city, records) in map.into_iter() {
         outer
             .entry(city)
-            .and_modify(|outer_records| *outer_records += records)
+            .and_modify(|outer_records| outer_records.merge(&records))
             .or_insert(records);
     }
 }
