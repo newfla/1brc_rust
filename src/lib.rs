@@ -5,8 +5,9 @@ use std::{
 
 pub mod adv;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct WeatherRecord {
+    city: String,
     min: i32,
     max: i32,
     sum: i64,
@@ -20,8 +21,9 @@ impl WeatherRecord {
         self.sum += item as i64;
     }
 
-    fn new(item: i32) -> Self {
+    fn new(city: &str, item: i32) -> Self {
         Self {
+            city: city.to_owned(),
             min: item,
             max: item,
             sum: item as i64,
@@ -35,6 +37,7 @@ impl Add for WeatherRecord {
 
     fn add(self, rhs: Self) -> Self::Output {
         Self {
+            city: self.city,
             count: self.count + rhs.count,
             min: self.min.min(rhs.min),
             max: self.max.max(rhs.max),
@@ -53,7 +56,8 @@ impl Display for WeatherRecord {
         let mean = self.sum as f32 / self.count as f32;
         write!(
             f,
-            "{:.1}/{:.1}/{:.1}",
+            "{}: {:.1}/{:.1}/{:.1}",
+            self.city,
             self.min as f32 / 10.,
             mean / 10.,
             self.max as f32 / 10.

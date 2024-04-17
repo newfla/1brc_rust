@@ -2,14 +2,14 @@ use std::{
     fs::File,
     os::unix::fs::{FileExt, MetadataExt},
     path::PathBuf,
-    str::from_utf8_unchecked,
+    str::from_utf8,
     sync::{Arc, Mutex},
     thread,
 };
 
-use ahash::AHashMap;
+use ahash::RandomState;
 use anyhow::Result;
-use ustr::UstrMap;
+use nohash_hasher::IntMap;
 
 use crate::WeatherRecord;
 
@@ -106,7 +106,7 @@ pub fn process(path: PathBuf) -> Result<()> {
     let x = &file;
     let file_size = file.metadata()?.size();
     let mut offset = 0u64;
-    let map = Arc::new(Mutex::new(UstrMap::default()));
+    let map = Arc::new(Mutex::new(IntMap::default()));
     let num_thread = thread::available_parallelism().map(Into::into).unwrap_or(1);
     thread::scope(|scope| {
         for _ in 0..num_thread {
@@ -123,7 +123,7 @@ pub fn process(path: PathBuf) -> Result<()> {
 
     for key in keys {
         let record = map[key];
-        println!("{key}: {record}");
+        println!("{record}");
     }
     Ok(())
 }
@@ -133,14 +133,14 @@ fn reader(
     mut offset: u64,
     num_thread: u64,
     file_size: u64,
-    outer_map: &mut Arc<Mutex<UstrMap<WeatherRecord>>>,
+    outer_map: &mut Arc<Mutex<IntMap<u64, WeatherRecord>>>,
 ) {
     let mut buffer = vec![0; (CHUNK_SIZE + CHUNK_EXCESS) as usize];
-    let mut map: UstrMap<WeatherRecord> = UstrMap::default();
+    let mut map: IntMap<u64, WeatherRecord> = IntMap::default();
+    let hasher = RandomState::new();
     let jump = CHUNK_SIZE * num_thread;
 
     while offset < file_size {
-        let mut loop_map: AHashMap<&[u8], WeatherRecord> = AHashMap::default();
         let buf = get_aligned_buffer(file, offset, &mut buffer, file_size);
 
         for line in buf
@@ -155,21 +155,18 @@ fn reader(
 
             let measure = parse_ascii_digits(&line[split_point + 1..]);
             let station = &line[..split_point];
+            let key = hasher.hash_one(station);
 
-            match loop_map.get_mut(station) {
+            match map.get_mut(&key) {
                 Some(elem) => {
                     elem.update(measure);
                 }
                 None => {
-                    loop_map.insert(station, WeatherRecord::new(measure));
+                    map.insert(
+                        key,
+                        WeatherRecord::new(from_utf8(station).unwrap(), measure),
+                    );
                 }
-            }
-        }
-        unsafe {
-            for (city, records) in loop_map.into_iter() {
-                map.entry(from_utf8_unchecked(city).into())
-                    .and_modify(|outer_records| *outer_records += records)
-                    .or_insert(records);
             }
         }
         offset += jump;
