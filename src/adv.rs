@@ -7,8 +7,8 @@ use std::{
     thread,
 };
 
-use ahash::RandomState;
 use anyhow::Result;
+use gxhash::gxhash32;
 use nohash_hasher::IntMap;
 
 use crate::WeatherRecord;
@@ -129,11 +129,10 @@ fn reader(
     mut offset: u64,
     num_thread: u64,
     file_size: u64,
-    outer_map: &mut Arc<Mutex<IntMap<u64, WeatherRecord>>>,
+    outer_map: &mut Arc<Mutex<IntMap<u32, WeatherRecord>>>,
 ) {
     let mut buffer = vec![0; (CHUNK_SIZE + CHUNK_EXCESS) as usize];
-    let mut map: IntMap<u64, WeatherRecord> = IntMap::default();
-    let hasher = RandomState::with_seed(1);
+    let mut map: IntMap<u32, WeatherRecord> = IntMap::default();
     let jump = CHUNK_SIZE * num_thread;
 
     while offset < file_size {
@@ -151,7 +150,7 @@ fn reader(
 
             let measure = parse_ascii_digits(&line[split_point + 1..]);
             let station = &line[..split_point];
-            let key = hasher.hash_one(station);
+            let key = gxhash32(station, 1);
 
             match map.get_mut(&key) {
                 Some(elem) => {

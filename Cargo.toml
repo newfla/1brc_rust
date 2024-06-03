@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ahash = {version = "0.8.11"}
 anyhow = "1.0.82"
+gxhash = "3.4.1"
 nohash-hasher = "0.2.0"
 
 [dev-dependencies]
