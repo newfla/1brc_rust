@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use mimalloc::MiMalloc;
 
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+//static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 const PATH: &str = "./measurements.txt";
 
